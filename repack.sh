@@ -27,7 +27,7 @@ fi
 OCI_LAYOUT_DIR="/tmp/beardist-oci-layout"
 OUTPUT_DIR="/tmp/beardist-output"
 IMAGE_NAME="ghcr.io/bearcove/beardist:${TAG_VERSION:+${TAG_VERSION}-}${ARCH_NAME}"
-BASE_IMAGE="ghcr.io/bearcove/build:${ARCH_NAME}"
+BASE_IMAGE="ghcr.io/bearcove/build:latest-${ARCH_NAME}"
 
 # Clean up and create layout directory
 rm -rf "$OCI_LAYOUT_DIR"
