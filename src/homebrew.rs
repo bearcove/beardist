@@ -88,14 +88,12 @@ struct HomebrewContext {
     client: Arc<Client>,
     dry_run: bool,
     formula: Formula,
-    config: TapConfig,
     new_version: String,
 }
 
 impl HomebrewContext {
     fn new(
         client: Arc<Client>,
-        config: TapConfig,
         formula: Formula,
         github_version: String,
         dry_run: bool,
@@ -114,7 +112,6 @@ impl HomebrewContext {
 
         Ok(Some(Self {
             client,
-            config,
             dry_run,
             formula,
             new_version: github_version,
@@ -338,7 +335,6 @@ pub(crate) fn update_tap() -> eyre::Result<()> {
 
         let context = HomebrewContext::new(
             client.clone(),
-            config.clone(),
             formula.clone(),
             github_version.clone(),
             dry_run,

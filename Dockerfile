@@ -126,3 +126,34 @@ RUN set -eux; \
 # apparently `libsqlite3.so` is only installed by the `-dev` package, but our program relies on it, so...
 RUN arch=$([ "$(uname -m)" = "aarch64" ] && echo "aarch64" || echo "x86_64") \
     && ln -s "/usr/lib/${arch}-linux-gnu/libsqlite3.so.0" "/usr/lib/${arch}-linux-gnu/libsqlite3.so"
+
+# Define a Docker Buildx Bake configuration
+# To build: docker buildx bake beardist
+FROM build AS beardist-builder
+
+WORKDIR /build
+
+COPY src/ ./src/
+COPY Cargo.toml .
+
+RUN rustup default stable
+
+RUN export DEBIAN_FRONTEND=noninteractive \
+    && apt-get update \
+    && apt-get install --no-install-recommends -y \
+    libssl-dev \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY recipe.json .
+RUN cargo chef cook --recipe-path recipe.json
+
+RUN cargo build --release
+
+####################################################################################################
+FROM build AS beardist
+
+COPY --from=beardist-builder /build/target/release/beardist /usr/bin/beardist
+
+# Make the binary executable
+RUN chmod +x /usr/bin/beardist

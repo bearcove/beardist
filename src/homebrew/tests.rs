@@ -37,14 +37,8 @@ fn test_generate_and_audit_formula() -> eyre::Result<()> {
     let formula = homebrew_config.formulas.first().unwrap().clone();
     let client = Arc::new(Client::new());
     let github_version = "8.0.0".to_string();
-    let context = HomebrewContext::new(
-        client.clone(),
-        homebrew_config,
-        formula,
-        github_version,
-        dry_run,
-    )?
-    .expect("Failed to create HomebrewContext");
+    let context = HomebrewContext::new(client.clone(), formula, github_version, dry_run)?
+        .expect("Failed to create HomebrewContext");
 
     let mac_binary = context.get_binary("https://example.com/mac")?;
     let linux_binary = context.get_binary("https://example.com/linux")?;
