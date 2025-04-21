@@ -26,8 +26,8 @@ fi
 # Declare variables
 OCI_LAYOUT_DIR="/tmp/beardist-oci-layout"
 OUTPUT_DIR="/tmp/beardist-output"
-IMAGE_NAME="code.bearcove.cloud/bearcove/beardist:${TAG_VERSION:+${TAG_VERSION}-}${ARCH_NAME}"
-BASE_IMAGE="code.bearcove.cloud/bearcove/build:${ARCH_NAME}"
+IMAGE_NAME="ghcr.io/bearcove/beardist:${TAG_VERSION:+${TAG_VERSION}-}${ARCH_NAME}"
+BASE_IMAGE="ghcr.io/bearcove/build:${ARCH_NAME}"
 
 # Clean up and create layout directory
 rm -rf "$OCI_LAYOUT_DIR"
@@ -56,7 +56,7 @@ if [ -n "${CI:-}" ] && [ -n "${GITHUB_REF:-}" ]; then
         if [[ "$TAG" == v* ]]; then
             TAG=${TAG#v}
         fi
-        TAGGED_IMAGE_NAME="code.bearcove.cloud/bearcove/beardist:$TAG"
+        TAGGED_IMAGE_NAME="ghcr.io/bearcove/beardist:$TAG"
         echo -e "\033[1;32m🏷️ Tagging and pushing: \033[1;35m$TAGGED_IMAGE_NAME\033[0m"
         regctl image copy "$IMAGE_NAME" "$TAGGED_IMAGE_NAME"
     fi
@@ -67,7 +67,7 @@ if [ -z "${CI:-}" ]; then
     echo -e "\033[1;34m🧪 Testing image locally\033[0m"
     docker pull "$IMAGE_NAME"
     docker run --rm "$IMAGE_NAME" beardist --help
-    
+
     # Display image info
     echo -e "\033[1;35m📋 Image layer information:\033[0m"
     docker image inspect "$IMAGE_NAME" --format '{{.RootFS.Layers | len}} layers'
