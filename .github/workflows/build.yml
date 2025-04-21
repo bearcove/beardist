@@ -39,7 +39,6 @@ jobs:
     container:
       image: ghcr.io/bearcove/beardist:${{ matrix.tag }}
     env:
-      # TODO: save/restore this
       BEARDIST_CACHE_DIR: /tmp/beardist-cache
       BEARDIST_ARTIFACT_NAME: ${{ matrix.artifact }}
       CLICOLOR: 1
@@ -48,6 +47,13 @@ jobs:
     steps:
       - name: Check out repository code
         uses: actions/checkout@v4
+      - name: Restore cache
+        uses: actions/cache@v3
+        with:
+          path: /tmp/beardist-cache
+          key: ${{ runner.os }}-${{ matrix.artifact }}-beardist-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.artifact }}-beardist-
       - name: Build
         shell: bash
         run: |
