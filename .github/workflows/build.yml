@@ -82,7 +82,7 @@ jobs:
   trigger-formula-update:
     needs: [mac-build, linux-build]
     if: startsWith(github.ref, 'refs/tags/')
-    runs-on: linux-arm64
+    runs-on: depot-ubuntu-24.04-2
     container:
       image: ghcr.io/bearcove/beardist:latest
     env:
