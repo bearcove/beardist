@@ -8,7 +8,7 @@ use reqwest::blocking::Client;
 use std::{path::PathBuf, sync::Arc};
 use url::Url;
 
-use crate::{Indented, command::get_trimmed_cmd_stdout, forgejo::ForgejoClient, run_command};
+use crate::{Indented, command::get_trimmed_cmd_stdout, github::GitHubClient, run_command};
 
 use serde::Deserialize;
 
@@ -17,8 +17,8 @@ mod tests;
 
 #[derive(Deserialize, Debug, Clone)]
 struct TapConfig {
-    forgejo_server_url: String,
-    forgejo_readonly_token: String,
+    github_server_url: String,
+    github_readonly_token: String,
     formulas: Vec<Formula>,
 }
 
@@ -53,19 +53,17 @@ impl Formula {
         Utf8PathBuf::from(format!("Formula/{}.rb", self.name()))
     }
 
-    fn forgejo_version(
+    fn github_version(
         &self,
         config: &TapConfig,
-        forgejo_readwrite_token: &str,
+        github_token: &str,
     ) -> eyre::Result<Option<String>> {
-        let forgejo_client = ForgejoClient::new(
-            config.forgejo_server_url.clone(),
-            forgejo_readwrite_token.to_string(),
-        );
-        forgejo_client.get_latest_version(
+        let github_client =
+            GitHubClient::new(config.github_server_url.clone(), github_token.to_string());
+        github_client.get_latest_version(
             self.org(),
             self.name(),
-            crate::forgejo::PackageType::Generic,
+            crate::github::PackageType::Generic,
         )
     }
 
@@ -101,16 +99,16 @@ impl HomebrewContext {
         client: Arc<Client>,
         config: TapConfig,
         formula: Formula,
-        forgejo_version: String,
+        github_version: String,
         dry_run: bool,
     ) -> eyre::Result<Option<Self>> {
         let formula_version = formula.formula_version();
         if let Some(formula_version) = formula_version {
-            if formula_version == forgejo_version {
+            if formula_version == github_version {
                 info!(
-                    "Formula version {} is already up-to-date with Forgejo version {}",
+                    "Formula version {} is already up-to-date with GitHub version {}",
                     formula_version.bright_green(),
-                    forgejo_version.bright_green()
+                    github_version.bright_green()
                 );
                 return Ok(None);
             }
@@ -121,7 +119,7 @@ impl HomebrewContext {
             config,
             dry_run,
             formula,
-            new_version: forgejo_version,
+            new_version: github_version,
         }))
     }
 
@@ -135,7 +133,7 @@ impl HomebrewContext {
     fn package_artifact_url(&self, arch: &str) -> String {
         format!(
             "{}/api/packages/{}/generic/{}/v{}/{}.tar.xz",
-            self.config.forgejo_server_url,
+            self.config.github_server_url,
             self.formula.org(),
             self.formula.name(),
             self.new_version,
@@ -224,7 +222,7 @@ impl HomebrewContext {
                 writeln!(
                     w,
                     "url \"{}\", headers: [\"Authorization: token {}\"]",
-                    binaries.mac.url, self.config.forgejo_readonly_token
+                    binaries.mac.url, self.config.github_readonly_token
                 )?;
                 writeln!(w, "sha256 \"{}\"", binaries.mac.sha256)?;
             }
@@ -234,7 +232,7 @@ impl HomebrewContext {
                 writeln!(
                     w,
                     "url \"{}\", headers: [\"Authorization: token {}\"]",
-                    binaries.linux.url, self.config.forgejo_readonly_token
+                    binaries.linux.url, self.config.github_readonly_token
                 )?;
                 writeln!(w, "sha256 \"{}\"", binaries.linux.sha256)?;
             }
@@ -272,7 +270,7 @@ impl HomebrewContext {
             .get(url)
             .header(
                 "Authorization",
-                format!("token {}", self.config.forgejo_readonly_token),
+                format!("token {}", self.config.github_readonly_token),
             )
             .send()?;
         let status = response.status();
@@ -325,8 +323,8 @@ pub(crate) fn update_tap() -> eyre::Result<()> {
     if dry_run {
         info!("Dry run {}", "enabled".bright_yellow());
     }
-    let forgejo_readwrite_token = std::env::var("FORGEJO_READWRITE_TOKEN")
-        .expect("FORGEJO_READWRITE_TOKEN environment variable not set");
+    let github_token =
+        std::env::var("GITHUB_TOKEN").expect("GITHUB_TOKEN environment variable not set");
 
     info!("Loading tap {}...", "configuration".cyan());
     let config = load_tap_config()?;
@@ -344,9 +342,9 @@ pub(crate) fn update_tap() -> eyre::Result<()> {
             formula.name().cyan()
         );
 
-        info!("Fetching Forgejo {}...", "version".cyan());
-        let forgejo_version = formula.forgejo_version(&config, &forgejo_readwrite_token)?;
-        let forgejo_version = match forgejo_version {
+        info!("Fetching GitHub {}...", "version".cyan());
+        let github_version = formula.github_version(&config, &github_token)?;
+        let github_version = match github_version {
             Some(version) => version,
             None => {
                 info!("No version found for {}, skipping", formula.name().cyan());
@@ -354,13 +352,13 @@ pub(crate) fn update_tap() -> eyre::Result<()> {
             }
         };
 
-        info!("Forgejo version: {}", forgejo_version.green());
+        info!("GitHub version: {}", github_version.green());
 
         let context = HomebrewContext::new(
             client.clone(),
             config.clone(),
             formula.clone(),
-            forgejo_version.clone(),
+            github_version.clone(),
             dry_run,
         )?;
 
@@ -371,7 +369,7 @@ pub(crate) fn update_tap() -> eyre::Result<()> {
                 "Formula update completed for {}",
                 formula.name().bright_green()
             );
-            bumped_formulas.push((formula.name().to_string(), forgejo_version));
+            bumped_formulas.push((formula.name().to_string(), github_version));
         } else {
             info!("No update needed for {}", formula.name().bright_blue());
         }
@@ -435,9 +433,7 @@ pub(crate) fn update_tap() -> eyre::Result<()> {
 
         let mut push_url = Url::parse(remote_url)?;
         push_url.set_username("token").unwrap();
-        push_url
-            .set_password(Some(&forgejo_readwrite_token))
-            .unwrap();
+        push_url.set_password(Some(&github_token)).unwrap();
 
         if !dry_run {
             run_command("git", &["push", push_url.as_str(), "HEAD:main"], None)?;

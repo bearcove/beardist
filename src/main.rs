@@ -15,7 +15,7 @@ use std::{env, os::unix::fs::PermissionsExt, path::PathBuf};
 use target_spec::TargetSpec;
 use tempfile::TempDir;
 
-pub(crate) mod forgejo;
+pub(crate) mod github;
 
 mod cargo;
 pub(crate) mod command;
@@ -43,7 +43,7 @@ struct Cli {
 /// Available subcommands for beardist
 #[derive(Subcommand)]
 enum Commands {
-    /// Build the project, create a package, and upload it to Forgejo
+    /// Build the project, create a package, and upload it to github
     Build,
     /// Bump the version number and create a new git tag
     Bump(BumpArgs),
@@ -71,7 +71,7 @@ enum BumpType {
 /// Arguments for the Deploy command
 #[derive(Parser)]
 struct DeployArgs {
-    /// The name of the image to deploy, e.g. "bearcove/home" (`code.bearcove.cloud` is implied)
+    /// The name of the image to deploy, e.g. "bearcove/home" (`ghcr.io` is implied)
     image: String,
 }
 
@@ -111,11 +111,11 @@ struct BuildContext {
     /// Configuration for the project (read from .beardist.json)
     config: Config,
 
-    /// URL of the forgejo server
-    forgejo_server_url: String,
+    /// URL of the github server
+    github_server_url: String,
 
-    /// ForgeJo read-write API token
-    forgejo_rw_token: String,
+    /// github read-write API token
+    github_rw_token: String,
 
     /// The git tag we're reacting to (in CI)
     tag: String,
@@ -216,11 +216,11 @@ impl BuildContext {
 
         let mut is_dry_run = false;
 
-        let forgejo_rw_token = match env::var("FORGEJO_READWRITE_TOKEN") {
+        let github_rw_token = match env::var("GITHUB_READWRITE_TOKEN") {
             Ok(token) => {
                 info!(
                     "{} is set: {}",
-                    "FORGEJO_READWRITE_TOKEN".cyan(),
+                    "GITHUB_READWRITE_TOKEN".cyan(),
                     format_secret(&token)
                 );
                 token
@@ -247,7 +247,7 @@ impl BuildContext {
             }
         };
 
-        let forgejo_server_url = match env::var("GITHUB_SERVER_URL") {
+        let github_server_url = match env::var("GITHUB_SERVER_URL") {
             Ok(url) => url,
             Err(_) => {
                 is_dry_run = true;
@@ -255,7 +255,7 @@ impl BuildContext {
                     "{} is not set, falling back to default",
                     "GITHUB_SERVER_URL".cyan()
                 );
-                "https://code.forgejo.org".to_string()
+                "https://github.com".to_string()
             }
         };
 
@@ -306,8 +306,8 @@ impl BuildContext {
             artifact_name,
             config,
             cache_dir,
-            forgejo_server_url,
-            forgejo_rw_token,
+            github_server_url,
+            github_rw_token,
             tag,
             is_dry_run,
             source_dir,
@@ -367,15 +367,11 @@ impl BuildContext {
         file_content: &[u8],
         files_to_package: &[PackagedFile],
     ) -> Result<()> {
-        let forgejo_server_url = &self.forgejo_server_url;
         let org = &self.config.org;
         let name = &self.config.name;
         let tag = &self.tag;
         let package_file_name = package_file.file_name().unwrap();
         assert!(!package_file_name.contains('/'));
-        let url = format!(
-            "{forgejo_server_url}/api/packages/{org}/generic/{name}/{tag}/{package_file_name}"
-        );
 
         const INSPECT_OUTPUT_DIR: &str = "/tmp/beardist-output";
         let _ = fs_err::remove_dir_all(INSPECT_OUTPUT_DIR);
@@ -413,14 +409,90 @@ impl BuildContext {
             return Ok(());
         }
 
+        // Create a release if it doesn't exist
+        let client = reqwest::blocking::Client::new();
+        let github_api_url = format!(
+            "{}/repos/{}/{}/releases/tags/{}",
+            self.github_server_url
+                .replace("github.com", "api.github.com"),
+            org,
+            name,
+            tag
+        );
+
+        info!(
+            "🔍 Checking if release exists at {}...",
+            github_api_url.cyan()
+        );
+
+        let release_response = client
+            .get(&github_api_url)
+            .header("Accept", "application/vnd.github+json")
+            .header("Authorization", format!("Bearer {}", self.github_rw_token))
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .send()?;
+
+        let release_id = if !release_response.status().is_success() {
+            info!("📝 Release doesn't exist, creating one...");
+
+            let release_create_url = format!(
+                "{}/repos/{}/{}/releases",
+                self.github_server_url
+                    .replace("github.com", "api.github.com"),
+                org,
+                name
+            );
+
+            let release_create_body = serde_json::json!({
+                "tag_name": tag,
+                "name": tag,
+                "draft": false,
+                "prerelease": false
+            });
+
+            let create_response = client
+                .post(&release_create_url)
+                .header("Accept", "application/vnd.github+json")
+                .header("Authorization", format!("Bearer {}", self.github_rw_token))
+                .header("X-GitHub-Api-Version", "2022-11-28")
+                .json(&release_create_body)
+                .send()?;
+
+            if !create_response.status().is_success() {
+                return Err(eyre::eyre!(
+                    "Failed to create release: {}",
+                    create_response.text()?
+                ));
+            }
+
+            let release_data: serde_json::Value = create_response.json()?;
+            release_data["id"]
+                .as_u64()
+                .ok_or_else(|| eyre::eyre!("Invalid release ID"))?
+        } else {
+            let release_data: serde_json::Value = release_response.json()?;
+            release_data["id"]
+                .as_u64()
+                .ok_or_else(|| eyre::eyre!("Invalid release ID"))?
+        };
+
+        // Upload the asset to the release
+        let upload_url = format!(
+            "{}/repos/{}/{}/releases/{}/assets?name={}",
+            self.github_server_url
+                .replace("github.com", "uploads.github.com"),
+            org,
+            name,
+            release_id,
+            package_file_name
+        );
+
         info!(
             "📤 Uploading package to {} ({})...",
-            "Forgejo".yellow(),
-            url.cyan()
+            "GitHub".yellow(),
+            upload_url.cyan()
         );
         let upload_start = std::time::Instant::now();
-
-        let client = reqwest::blocking::Client::new();
 
         // Retry logic for upload attempts
         const MAX_RETRIES: usize = 3;
@@ -440,9 +512,11 @@ impl BuildContext {
             }
 
             match client
-                .put(&url)
+                .post(&upload_url)
+                .header("Accept", "application/vnd.github+json")
+                .header("Authorization", format!("Bearer {}", self.github_rw_token))
+                .header("X-GitHub-Api-Version", "2022-11-28")
                 .header("Content-Type", "application/octet-stream")
-                .header("Authorization", format!("token {}", self.forgejo_rw_token))
                 .body(file_content.to_vec())
                 .send()
             {

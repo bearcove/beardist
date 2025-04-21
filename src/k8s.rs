@@ -5,7 +5,7 @@ use regex::Regex;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::forgejo::{ForgejoClient, PackageType};
+use crate::github::{GitHubClient, PackageType};
 
 #[derive(Debug, Clone)]
 struct ImageOccurrence {
@@ -125,15 +125,15 @@ pub(crate) fn k8s(args: crate::DeployArgs) -> eyre::Result<()> {
         }
     }
 
-    info!("Initializing Forgejo client...");
-    let forgejo_client = ForgejoClient::from_env()?;
+    info!("Initializing GitHub client...");
+    let github_client = GitHubClient::from_env()?;
 
     info!("Checking for new versions...");
     let mut spinner = ['|', '/', '-', '\\'].iter().cycle();
     let mut last_check_time = std::time::Instant::now();
     let new_version = loop {
         let latest_version =
-            forgejo_client.get_latest_version(org, package_name, PackageType::Container)?;
+            github_client.get_latest_version(org, package_name, PackageType::Container)?;
 
         if let Some(version) = latest_version {
             // Skip versions that end with -amd64 or -arm64

@@ -38,9 +38,6 @@ jobs:
     runs-on: ${{ matrix.runs-on }}
     container:
       image: ghcr.io/bearcove/beardist:${{ matrix.tag }}
-      credentials:
-        username: "token"
-        password: "${{ secrets.BEARCOVE_PULL_PASSWORD }}"
     env:
       # TODO: save/restore this
       BEARDIST_CACHE_DIR: /tmp/beardist-cache
@@ -65,9 +62,6 @@ jobs:
     runs-on: linux-arm64
     container:
       image: ghcr.io/bearcove/beardist:latest
-      credentials:
-        username: "token"
-        password: "${{ secrets.BEARCOVE_PULL_PASSWORD }}"
     env:
       FORGEJO_READWRITE_TOKEN: ${{ secrets.FORGEJO_READWRITE_TOKEN }}
     steps:
