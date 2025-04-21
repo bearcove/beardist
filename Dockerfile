@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 ####################################################################################################
-FROM debian:trixie-slim AS base
+FROM ubuntu:24.04 AS base
 
 RUN export DEBIAN_FRONTEND=noninteractive \
     && apt-get update \
