@@ -56,13 +56,11 @@ impl Formula {
         _config: &TapConfig,
         github_token: &str,
     ) -> eyre::Result<Option<String>> {
-        let github_client =
-            GitHubClient::new("https://github.com".to_string(), github_token.to_string());
-        github_client.get_latest_version(
-            self.org(),
-            self.name(),
-            crate::github::PackageType::Generic,
-        )
+        let github_client = GitHubClient::new(
+            "https://api.github.com".to_string(),
+            github_token.to_string(),
+        );
+        github_client.get_latest_release_version(self.org(), self.name())
     }
 
     fn formula_version(&self) -> Option<String> {

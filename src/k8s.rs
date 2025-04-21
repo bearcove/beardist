@@ -5,7 +5,7 @@ use regex::Regex;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::github::{GitHubClient, PackageType};
+use crate::github::GitHubClient;
 
 #[derive(Debug, Clone)]
 struct ImageOccurrence {
@@ -132,8 +132,7 @@ pub(crate) fn k8s(args: crate::DeployArgs) -> eyre::Result<()> {
     let mut spinner = ['|', '/', '-', '\\'].iter().cycle();
     let mut last_check_time = std::time::Instant::now();
     let new_version = loop {
-        let latest_version =
-            github_client.get_latest_version(org, package_name, PackageType::Container)?;
+        let latest_version = github_client.get_latest_container_version(org, package_name)?;
 
         if let Some(version) = latest_version {
             // Skip versions that end with -amd64 or -arm64

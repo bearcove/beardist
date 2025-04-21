@@ -3,23 +3,6 @@ use reqwest::blocking::Client;
 use semver::Version;
 use serde_json::Value;
 
-use std::fmt;
-
-#[derive(Debug, Clone, Copy)]
-pub enum PackageType {
-    Generic,
-    Container,
-}
-
-impl fmt::Display for PackageType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            PackageType::Generic => write!(f, "generic"),
-            PackageType::Container => write!(f, "container"),
-        }
-    }
-}
-
 pub struct GitHubClient {
     client: Client,
     server_url: String,
@@ -43,28 +26,26 @@ impl GitHubClient {
         Ok(Self::new(server_url, token))
     }
 
-    pub fn get_latest_version(
+    /// Get the latest version tag from a GitHub Container Registry (ghcr.io) package
+    pub fn get_latest_container_version(
         &self,
         org: &str,
         package_name: &str,
-        package_type: PackageType,
     ) -> eyre::Result<Option<String>> {
-        let url = format!("{}/orgs/{}/packages", self.server_url, org);
-        info!(
-            "Fetching latest version for package '{}' from '{}'",
-            package_name, url
+        let url = format!(
+            "{}/orgs/{}/packages/container/{}/versions",
+            self.server_url, org, package_name
         );
 
-        let package_type_str = match package_type {
-            PackageType::Generic => "maven",
-            PackageType::Container => "container",
-        };
+        info!(
+            "Fetching latest container version for '{}' from '{}'",
+            package_name, url
+        );
 
         let start_time = std::time::Instant::now();
         let response = self
             .client
             .get(&url)
-            .query(&[("package_type", package_type_str)])
             .header("Authorization", format!("token {}", self.token))
             .header("Accept", "application/vnd.github+json")
             .header("X-GitHub-Api-Version", "2022-11-28")
@@ -78,78 +59,111 @@ impl GitHubClient {
             status
         );
 
-        let body = response.text()?;
-        debug!("Response body size: {} bytes", body.len());
-
         if status != 200 {
+            let body = response.text()?;
+            debug!("Error response: {}", body);
             return Err(eyre::eyre!(
-                "Failed to get latest version: HTTP status {status}"
+                "Failed to get container versions: HTTP status {status}"
             ));
         }
 
-        let packages: Vec<Value> = serde_json::from_str(&body)?;
-        info!("Received {} packages in response", packages.len());
+        let body = response.text()?;
+        debug!("Response body size: {} bytes", body.len());
 
-        let filtered_packages: Vec<_> = packages
-            .into_iter()
-            .filter(|package| package["name"].as_str() == Some(package_name))
+        let versions: Vec<Value> = serde_json::from_str(&body)?;
+        info!("Received {} versions in response", versions.len());
+
+        let valid_versions: Vec<Version> = versions
+            .iter()
+            .filter_map(|version| {
+                // Look for metadata tags with semver format
+                version["metadata"]["container"]["tags"]
+                    .as_array()
+                    .and_then(|tags| {
+                        tags.iter()
+                            .filter_map(|tag| tag.as_str())
+                            .filter_map(|tag| Version::parse(tag.trim_start_matches('v')).ok())
+                            .max()
+                    })
+            })
             .collect();
 
-        info!("Filtered to {} matching packages", filtered_packages.len());
+        info!("Found {} valid semver tags", valid_versions.len());
 
-        if filtered_packages.is_empty() {
-            info!("No matching packages found");
+        if valid_versions.is_empty() {
+            info!("No valid versioned tags found for container");
             return Ok(None);
         }
 
-        // For the found package, we need to get its versions
-        if let Some(package) = filtered_packages.first() {
-            if let Some(package_name_value) = package["name"].as_str() {
-                let versions_url = format!(
-                    "{}/orgs/{}/packages/{}/{}/versions",
-                    self.server_url, org, package_type_str, package_name_value
-                );
+        let latest_version = valid_versions.into_iter().max().unwrap();
+        info!("Latest container version found: {}", latest_version);
+        Ok(Some(latest_version.to_string()))
+    }
 
-                let versions_response = self
-                    .client
-                    .get(&versions_url)
-                    .header("Authorization", format!("token {}", self.token))
-                    .header("Accept", "application/vnd.github+json")
-                    .header("X-GitHub-Api-Version", "2022-11-28")
-                    .send()?;
+    /// Get the latest release version from a GitHub repository
+    pub fn get_latest_release_version(
+        &self,
+        owner: &str,
+        repo: &str,
+    ) -> eyre::Result<Option<String>> {
+        let url = format!(
+            "{}/repos/{}/{}/releases/latest",
+            self.server_url, owner, repo
+        );
 
-                if versions_response.status() != 200 {
-                    return Err(eyre::eyre!(
-                        "Failed to get package versions: HTTP status {}",
-                        versions_response.status()
-                    ));
-                }
+        info!(
+            "Fetching latest release for repository '{}/{}' from '{}'",
+            owner, repo, url
+        );
 
-                let versions_body = versions_response.text()?;
-                let versions: Vec<Value> = serde_json::from_str(&versions_body)?;
+        let start_time = std::time::Instant::now();
+        let response = self
+            .client
+            .get(&url)
+            .header("Authorization", format!("token {}", self.token))
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .send()?;
 
-                let valid_versions: Vec<Version> = versions
-                    .iter()
-                    .filter_map(|version| {
-                        version["name"]
-                            .as_str()
-                            .and_then(|v| Version::parse(v.trim_start_matches('v')).ok())
-                    })
-                    .collect();
+        let status = response.status();
+        let elapsed = start_time.elapsed();
+        info!(
+            "Request completed in {}ms with status {}",
+            elapsed.as_millis(),
+            status
+        );
 
-                info!("Found {} valid versions", valid_versions.len());
-
-                if valid_versions.is_empty() {
-                    info!("No valid versions found");
-                    return Ok(None);
-                }
-
-                let latest_version = valid_versions.iter().max().unwrap();
-                info!("Latest version found: {}", latest_version);
-                return Ok(Some(latest_version.to_string()));
-            }
+        // 404 means no releases yet
+        if status == 404 {
+            info!("No releases found for repository '{}/{}'", owner, repo);
+            return Ok(None);
         }
 
-        Ok(None)
+        if status != 200 {
+            let body = response.text()?;
+            debug!("Error response: {}", body);
+            return Err(eyre::eyre!(
+                "Failed to get latest release: HTTP status {status}"
+            ));
+        }
+
+        let body = response.text()?;
+        debug!("Response body size: {} bytes", body.len());
+
+        let release: Value = serde_json::from_str(&body)?;
+
+        if let Some(tag_name) = release["tag_name"].as_str() {
+            let version_str = tag_name.trim_start_matches('v');
+            info!("Latest release tag: {}", tag_name);
+
+            // Try to parse as semver, but return the original tag if not valid
+            match Version::parse(version_str) {
+                Ok(version) => Ok(Some(version.to_string())),
+                Err(_) => Ok(Some(version_str.to_string())),
+            }
+        } else {
+            info!("Release found but no tag_name present");
+            Ok(None)
+        }
     }
 }
