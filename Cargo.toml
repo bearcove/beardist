@@ -2,6 +2,12 @@
 name = "beardist"
 version = "1.1.0"
 edition = "2024"
+license = "Apache-2.0/MIT"
+description = "Builds Rust code in CI and uploads it to GitHub Releases / registry"
+authors = ["Amos Wenger <amos@bearcove.eu>"]
+repository = "https://github.com/bearcove/beardist"
+keywords = ["distribution", "tool"]
+categories = ["command-line-utilities"]
 
 [dependencies]
 camino = "1.1.9"
