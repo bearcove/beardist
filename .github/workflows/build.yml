@@ -8,9 +8,10 @@ on:
     branches: [main]
 jobs:
   mac-build:
-    runs-on: mac-arm
+    runs-on: depot-macos-latest
     env:
-      BEARDIST_CACHE_DIR: ${{ env.HOME }}/.cache/beardist
+      # TODO: save/restore
+      BEARDIST_CACHE_DIR: /tmp/beardist-cache
       BEARDIST_ARTIFACT_NAME: aarch64-apple-darwin
       FORGEJO_READWRITE_TOKEN: ${{ secrets.FORGEJO_READWRITE_TOKEN }}
       CLICOLOR: 1
@@ -22,37 +23,28 @@ jobs:
         shell: bash
         run: |
           beardist build
-          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
-              echo "we're building a tag! "
-              echo "installing latest beardist locally (mac runners are non-containerized)"
-              # beardist is statically-linked (not a dylo binary) so we can just
-              # copy it in-place
-              cp /tmp/beardist-output/beardist $(which beardist)
-          fi
   linux-build:
     strategy:
       matrix:
         include:
-          - runs-on: linux-arm64
+          - runs-on: depot-ubuntu-24.04-arm-16
             artifact: aarch64-unknown-linux-gnu
             platform: linux/arm64
-            tag: 3.9.3-arm64
-          - runs-on: linux-amd64
+            tag: 1.0.1-arm64
+          - runs-on: depot-ubuntu-24.04-16
             artifact: x86_64-unknown-linux-gnu
             platform: linux/amd64
-            tag: 3.8.9-amd64
+            tag: 1.0.1-amd64
     runs-on: ${{ matrix.runs-on }}
     container:
       image: ghcr.io/bearcove/beardist:${{ matrix.tag }}
-      volumes:
-        - /var/persistent-build-storage:/var/persistent-build-storage
       credentials:
         username: "token"
         password: "${{ secrets.BEARCOVE_PULL_PASSWORD }}"
     env:
-      BEARDIST_CACHE_DIR: /var/persistent-build-storage/beardist-cache
+      # TODO: save/restore this
+      BEARDIST_CACHE_DIR: /tmp/beardist-cache
       BEARDIST_ARTIFACT_NAME: ${{ matrix.artifact }}
-      FORGEJO_READWRITE_TOKEN: ${{ secrets.FORGEJO_READWRITE_TOKEN }}
       CLICOLOR: 1
       CLICOLOR_FORCE: 1
       IMAGE_PLATFORM: ${{ matrix.platform }}
