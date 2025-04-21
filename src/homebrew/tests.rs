@@ -23,9 +23,6 @@ fn test_generate_and_audit_formula() -> eyre::Result<()> {
     // Generate formula content
     let start = Instant::now();
     let homebrew_config = TapConfig {
-        forgejo_server_url: "https://forgejo.example.com".to_string(),
-        forgejo_readonly_token: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-            .to_string(),
         formulas: vec![Formula {
             repo: "testowner/foobar".to_string(),
             homepage: "https://example.com".to_string(),
@@ -39,12 +36,12 @@ fn test_generate_and_audit_formula() -> eyre::Result<()> {
     info!("Generated sample config");
     let formula = homebrew_config.formulas.first().unwrap().clone();
     let client = Arc::new(Client::new());
-    let forgejo_version = "8.0.0".to_string();
+    let github_version = "8.0.0".to_string();
     let context = HomebrewContext::new(
         client.clone(),
         homebrew_config,
         formula,
-        forgejo_version,
+        github_version,
         dry_run,
     )?
     .expect("Failed to create HomebrewContext");

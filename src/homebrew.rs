@@ -17,8 +17,6 @@ mod tests;
 
 #[derive(Deserialize, Debug, Clone)]
 struct TapConfig {
-    github_server_url: String,
-    github_readonly_token: String,
     formulas: Vec<Formula>,
 }
 
@@ -55,11 +53,11 @@ impl Formula {
 
     fn github_version(
         &self,
-        config: &TapConfig,
+        _config: &TapConfig,
         github_token: &str,
     ) -> eyre::Result<Option<String>> {
         let github_client =
-            GitHubClient::new(config.github_server_url.clone(), github_token.to_string());
+            GitHubClient::new("https://github.com".to_string(), github_token.to_string());
         github_client.get_latest_version(
             self.org(),
             self.name(),
@@ -132,8 +130,7 @@ impl HomebrewContext {
 
     fn package_artifact_url(&self, arch: &str) -> String {
         format!(
-            "{}/api/packages/{}/generic/{}/v{}/{}.tar.xz",
-            self.config.github_server_url,
+            "https://github.com/api/packages/{}/generic/{}/v{}/{}.tar.xz",
             self.formula.org(),
             self.formula.name(),
             self.new_version,
@@ -219,21 +216,13 @@ impl HomebrewContext {
             writeln!(w, "if OS.mac?")?;
             {
                 let mut w = w.indented();
-                writeln!(
-                    w,
-                    "url \"{}\", headers: [\"Authorization: token {}\"]",
-                    binaries.mac.url, self.config.github_readonly_token
-                )?;
+                writeln!(w, "url \"{}\"", binaries.mac.url)?;
                 writeln!(w, "sha256 \"{}\"", binaries.mac.sha256)?;
             }
             writeln!(w, "elsif OS.linux?")?;
             {
                 let mut w = w.indented();
-                writeln!(
-                    w,
-                    "url \"{}\", headers: [\"Authorization: token {}\"]",
-                    binaries.linux.url, self.config.github_readonly_token
-                )?;
+                writeln!(w, "url \"{}\"", binaries.linux.url)?;
                 writeln!(w, "sha256 \"{}\"", binaries.linux.sha256)?;
             }
             writeln!(w, "end")?;
@@ -265,14 +254,7 @@ impl HomebrewContext {
             return Ok(sha256);
         }
 
-        let response = self
-            .client
-            .get(url)
-            .header(
-                "Authorization",
-                format!("token {}", self.config.github_readonly_token),
-            )
-            .send()?;
+        let response = self.client.get(url).send()?;
         let status = response.status();
         if status != 200 {
             let error_text = response.text()?;
