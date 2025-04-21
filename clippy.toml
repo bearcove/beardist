@@ -1,0 +1,25 @@
+# clippy.toml
+
+disallowed-methods = [
+  # Disallow std::fs::read, write, etc.
+  { path = "std::fs::read", reason = "Use `fs_err::read` instead" },
+  { path = "std::fs::write", reason = "Use `fs_err::write` instead" },
+  { path = "std::fs::File::open", reason = "Use `fs_err::File::open` instead" },
+  { path = "std::fs::File::create", reason = "Use `fs_err::File::create` instead" },
+  { path = "std::fs::remove_file", reason = "Use `fs_err::remove_file` instead" },
+  { path = "std::fs::remove_dir_all", reason = "Use `fs_err::remove_dir_all` instead" },
+  { path = "std::fs::create_dir", reason = "Use `fs_err::create_dir` instead" },
+  { path = "std::fs::create_dir_all", reason = "Use `fs_err::create_dir_all` instead" },
+  { path = "std::fs::copy", reason = "Use `fs_err::copy` instead" },
+  { path = "std::fs::rename", reason = "Use `fs_err::rename` instead" },
+  { path = "std::fs::metadata", reason = "Use `fs_err::metadata` instead" },
+  { path = "std::fs::symlink_metadata", reason = "Use `fs_err::symlink_metadata` instead" },
+  { path = "std::fs::read_dir", reason = "Use `fs_err::read_dir` instead" },
+  { path = "std::fs::canonicalize", reason = "Use `fs_err::canonicalize` instead" },
+  { path = "std::fs::read_to_string", reason = "Use `fs_err::read_to_string` instead" },
+  { path = "std::fs::read_link", reason = "Use `fs_err::read_link` instead" },
+  { path = "std::fs::hard_link", reason = "Use `fs_err::hard_link` instead" },
+  { path = "std::fs::symlink", reason = "Use `fs_err::symlink` instead" },
+  { path = "std::fs::set_permissions", reason = "Use `fs_err::set_permissions` instead" },
+  # You can add more as needed
+]

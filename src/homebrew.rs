@@ -1,0 +1,456 @@
+use camino::Utf8PathBuf;
+use color_eyre::eyre;
+use convert_case::{Case, Casing};
+use eyre::Context;
+use log::*;
+use owo_colors::OwoColorize;
+use reqwest::blocking::Client;
+use std::{path::PathBuf, sync::Arc};
+use url::Url;
+
+use crate::{Indented, command::get_trimmed_cmd_stdout, forgejo::ForgejoClient, run_command};
+
+use serde::Deserialize;
+
+#[cfg(test)]
+mod tests;
+
+#[derive(Deserialize, Debug, Clone)]
+struct TapConfig {
+    forgejo_server_url: String,
+    forgejo_readonly_token: String,
+    formulas: Vec<Formula>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+struct Formula {
+    repo: String,
+    homepage: String,
+    desc: String,
+    license: String,
+    bins: Vec<String>,
+
+    #[serde(default)]
+    deps: Vec<String>,
+}
+
+struct Binaries {
+    mac: Binary,
+    linux: Binary,
+}
+
+impl Formula {
+    fn org(&self) -> &str {
+        self.repo.split('/').next().unwrap()
+    }
+
+    fn name(&self) -> &str {
+        self.repo.split('/').nth(1).unwrap()
+    }
+
+    /// Where the formula is written on disk
+    fn disk_path(&self) -> Utf8PathBuf {
+        Utf8PathBuf::from(format!("Formula/{}.rb", self.name()))
+    }
+
+    fn forgejo_version(
+        &self,
+        config: &TapConfig,
+        forgejo_readwrite_token: &str,
+    ) -> eyre::Result<Option<String>> {
+        let forgejo_client = ForgejoClient::new(
+            config.forgejo_server_url.clone(),
+            forgejo_readwrite_token.to_string(),
+        );
+        forgejo_client.get_latest_version(
+            self.org(),
+            self.name(),
+            crate::forgejo::PackageType::Generic,
+        )
+    }
+
+    fn formula_version(&self) -> Option<String> {
+        let disk_path = self.disk_path();
+        if !disk_path.exists() {
+            return None;
+        }
+        let content = fs_err::read_to_string(&disk_path).unwrap();
+        let version_line = content
+            .lines()
+            .find(|line| line.trim().starts_with("version"))?;
+        let version = version_line.split('"').nth(1)?;
+        Some(version.to_string())
+    }
+}
+
+struct Binary {
+    url: String,
+    sha256: String,
+}
+
+struct HomebrewContext {
+    client: Arc<Client>,
+    dry_run: bool,
+    formula: Formula,
+    config: TapConfig,
+    new_version: String,
+}
+
+impl HomebrewContext {
+    fn new(
+        client: Arc<Client>,
+        config: TapConfig,
+        formula: Formula,
+        forgejo_version: String,
+        dry_run: bool,
+    ) -> eyre::Result<Option<Self>> {
+        let formula_version = formula.formula_version();
+        if let Some(formula_version) = formula_version {
+            if formula_version == forgejo_version {
+                info!(
+                    "Formula version {} is already up-to-date with Forgejo version {}",
+                    formula_version.bright_green(),
+                    forgejo_version.bright_green()
+                );
+                return Ok(None);
+            }
+        }
+
+        Ok(Some(Self {
+            client,
+            config,
+            dry_run,
+            formula,
+            new_version: forgejo_version,
+        }))
+    }
+
+    fn get_binary(&self, url: &str) -> eyre::Result<Binary> {
+        Ok(Binary {
+            url: url.to_string(),
+            sha256: self.fetch_and_hash(url)?,
+        })
+    }
+
+    fn package_artifact_url(&self, arch: &str) -> String {
+        format!(
+            "{}/api/packages/{}/generic/{}/v{}/{}.tar.xz",
+            self.config.forgejo_server_url,
+            self.formula.org(),
+            self.formula.name(),
+            self.new_version,
+            arch
+        )
+    }
+
+    fn update_formula(&self) -> eyre::Result<()> {
+        info!("Updating Homebrew {}...", "formula".bright_yellow());
+        let binaries = Binaries {
+            mac: self.get_binary(&self.package_artifact_url("aarch64-apple-darwin"))?,
+            linux: self.get_binary(&self.package_artifact_url("x86_64-unknown-linux-gnu"))?,
+        };
+
+        let formula = self.generate_homebrew_formula(binaries)?;
+        let formula_path = self.formula.disk_path();
+
+        if self.dry_run {
+            info!(
+                "Dry run: Would write formula to {}",
+                formula_path.to_string().cyan()
+            );
+            info!("Formula content:\n{}", formula);
+        } else {
+            if let Some(parent) = formula_path.parent() {
+                fs_err::create_dir_all(parent)?;
+            }
+            fs_err::write(&formula_path, formula)?;
+            info!(
+                "Homebrew formula written to {}",
+                formula_path.to_string().bright_green()
+            );
+        }
+
+        Ok(())
+    }
+
+    fn generate_homebrew_formula(&self, binaries: Binaries) -> eyre::Result<String> {
+        use std::fmt::Write;
+
+        let mut w = String::new();
+
+        writeln!(w, "# frozen_string_literal: true")?;
+        writeln!(w)?;
+        writeln!(w, "# {}", self.formula.desc)?;
+        writeln!(
+            w,
+            "class {} < Formula",
+            self.formula.name().to_case(Case::Pascal)
+        )?;
+        {
+            let mut w = w.indented();
+            writeln!(w, "desc \"{}\"", self.formula.desc)?;
+            writeln!(w, "homepage \"{}\"", self.formula.homepage)?;
+            writeln!(w, "version \"{}\"", self.new_version)?;
+            writeln!(w, "license \"{}\"", self.formula.license)?;
+            writeln!(w)?;
+            for dep in &self.formula.deps {
+                let parts: Vec<&str> = dep.split('#').collect();
+                let (name, keyword) = match parts.as_slice() {
+                    [name] => (name, None),
+                    [name, keyword] => (name, Some(keyword.trim())),
+                    _ => {
+                        return Err(eyre::eyre!(
+                            "Invalid dependency syntax. Use 'name' or 'name#keyword' where keyword is 'recommended' or 'optional'"
+                        ));
+                    }
+                };
+
+                match keyword {
+                    None => writeln!(w, "depends_on \"{}\"", name)?,
+                    Some("recommended") => writeln!(w, "depends_on \"{}\" => :recommended", name)?,
+                    Some("optional") => writeln!(w, "depends_on \"{}\" => :optional", name)?,
+                    Some(k) => {
+                        return Err(eyre::eyre!(
+                            "Unknown dependency keyword: '{}'. Use 'recommended' or 'optional'",
+                            k
+                        ));
+                    }
+                }
+            }
+            writeln!(w)?;
+            writeln!(w, "if OS.mac?")?;
+            {
+                let mut w = w.indented();
+                writeln!(
+                    w,
+                    "url \"{}\", headers: [\"Authorization: token {}\"]",
+                    binaries.mac.url, self.config.forgejo_readonly_token
+                )?;
+                writeln!(w, "sha256 \"{}\"", binaries.mac.sha256)?;
+            }
+            writeln!(w, "elsif OS.linux?")?;
+            {
+                let mut w = w.indented();
+                writeln!(
+                    w,
+                    "url \"{}\", headers: [\"Authorization: token {}\"]",
+                    binaries.linux.url, self.config.forgejo_readonly_token
+                )?;
+                writeln!(w, "sha256 \"{}\"", binaries.linux.sha256)?;
+            }
+            writeln!(w, "end")?;
+            writeln!(w)?;
+            writeln!(w, "def install")?;
+            {
+                let mut w = w.indented();
+                for bin in &self.formula.bins {
+                    writeln!(w, "bin.install \"{}\"", bin)?;
+                }
+                writeln!(w, "libexec.install Dir[\"lib*.dylib\"] if OS.mac?")?;
+                writeln!(w, "libexec.install Dir[\"lib*.so\"] if OS.linux?")?;
+            }
+            writeln!(w, "end")?;
+        }
+        writeln!(w, "end")?;
+
+        Ok(w)
+    }
+
+    fn fetch_and_hash(&self, url: &str) -> eyre::Result<String> {
+        info!("Fetching binary from {}...", url.cyan());
+        if self.dry_run {
+            info!("Dry run: Would fetch {}", "binary".bright_yellow());
+            use sha2::{Digest, Sha256};
+            let mut hasher = Sha256::new();
+            hasher.update(url);
+            let sha256 = format!("{:x}", hasher.finalize());
+            return Ok(sha256);
+        }
+
+        let response = self
+            .client
+            .get(url)
+            .header(
+                "Authorization",
+                format!("token {}", self.config.forgejo_readonly_token),
+            )
+            .send()?;
+        let status = response.status();
+        if status != 200 {
+            let error_text = response.text()?;
+            error!(
+                "Failed to fetch binary: HTTP status {}, Response: {}",
+                status.to_string().red(),
+                error_text.red()
+            );
+            return Err(eyre::eyre!(
+                "Failed to fetch binary: HTTP status {}",
+                status
+            ));
+        }
+        let bytes = response.bytes()?;
+        let byte_count = bytes.len();
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(&bytes);
+        let sha256 = format!("{:x}", hasher.finalize());
+        info!(
+            "Binary fetched ({} bytes) and SHA256 {}",
+            byte_count.to_string().green(),
+            "computed".green()
+        );
+        Ok(sha256)
+    }
+}
+
+fn load_tap_config() -> eyre::Result<TapConfig> {
+    let config_path = fs_err::canonicalize(PathBuf::from(".beardist-tap.json"))?;
+    let config_str = fs_err::read_to_string(&config_path).wrap_err_with(|| {
+        format!(
+            "Failed to read tap config file at {}",
+            config_path.display().to_string().cyan()
+        )
+    })?;
+    let config: TapConfig = serde_json::from_str(&config_str).wrap_err_with(|| {
+        format!(
+            "Failed to parse config file at {}",
+            config_path.display().to_string().cyan()
+        )
+    })?;
+    Ok(config)
+}
+
+pub(crate) fn update_tap() -> eyre::Result<()> {
+    let dry_run = std::env::var("DRY_RUN").is_ok();
+    if dry_run {
+        info!("Dry run {}", "enabled".bright_yellow());
+    }
+    let forgejo_readwrite_token = std::env::var("FORGEJO_READWRITE_TOKEN")
+        .expect("FORGEJO_READWRITE_TOKEN environment variable not set");
+
+    info!("Loading tap {}...", "configuration".cyan());
+    let config = load_tap_config()?;
+    info!("Tap configuration loaded {}", "successfully".green());
+
+    let client = Arc::new(Client::new());
+
+    info!("Processing {}...", "formulas".bright_yellow());
+    let mut bumped_formulas = Vec::new();
+    for (index, formula) in config.formulas.iter().enumerate() {
+        info!(
+            "Processing formula {} of {}: {}",
+            (index + 1).to_string().cyan(),
+            config.formulas.len().to_string().cyan(),
+            formula.name().cyan()
+        );
+
+        info!("Fetching Forgejo {}...", "version".cyan());
+        let forgejo_version = formula.forgejo_version(&config, &forgejo_readwrite_token)?;
+        let forgejo_version = match forgejo_version {
+            Some(version) => version,
+            None => {
+                info!("No version found for {}, skipping", formula.name().cyan());
+                continue;
+            }
+        };
+
+        info!("Forgejo version: {}", forgejo_version.green());
+
+        let context = HomebrewContext::new(
+            client.clone(),
+            config.clone(),
+            formula.clone(),
+            forgejo_version.clone(),
+            dry_run,
+        )?;
+
+        if let Some(context) = context {
+            info!("Updating formula for {}...", formula.name().bright_yellow());
+            context.update_formula()?;
+            info!(
+                "Formula update completed for {}",
+                formula.name().bright_green()
+            );
+            bumped_formulas.push((formula.name().to_string(), forgejo_version));
+        } else {
+            info!("No update needed for {}", formula.name().bright_blue());
+        }
+    }
+    info!("All formulas {}", "processed".bright_green());
+
+    if !bumped_formulas.is_empty() {
+        let commit_message = bumped_formulas
+            .iter()
+            .map(|(name, version)| format!("{} to {}", name, version))
+            .collect::<Vec<String>>()
+            .join(", ");
+
+        let full_commit_message = format!("Bump formulas: {}", commit_message);
+
+        info!("Committing changes...");
+        if !dry_run {
+            run_command("git", &["add", "."], None)?;
+            run_command(
+                "git",
+                &["commit", "-m", &full_commit_message],
+                Some(indexmap::indexmap! {
+                    "GIT_AUTHOR_NAME".to_string() => "beardist".to_string(),
+                    "GIT_AUTHOR_EMAIL".to_string() => "amos@bearcove.eu".to_string(),
+                    "GIT_COMMITTER_NAME".to_string() => "beardist".to_string(),
+                    "GIT_COMMITTER_EMAIL".to_string() => "amos@bearcove.eu".to_string(),
+                }),
+            )?;
+            info!("Changes committed successfully");
+        } else {
+            info!(
+                "Dry run: Would commit changes with message: {}",
+                full_commit_message.cyan()
+            );
+        }
+
+        info!("Formulas bumped:");
+        for (name, version) in bumped_formulas {
+            info!("  {} to version {}", name.cyan(), version.green());
+        }
+
+        info!("Pushing changes...");
+        let remote_output = get_trimmed_cmd_stdout("git", &["remote", "-v"], None)?;
+        let remote_url = remote_output
+            .lines()
+            .find(|line| line.contains("(push)"))
+            .and_then(|line| line.split_whitespace().nth(1))
+            .ok_or_else(|| eyre::eyre!("Failed to get remote URL"))?;
+
+        let org_repo = remote_url
+            .trim_start_matches("https://")
+            .trim_end_matches(".git")
+            .split('/')
+            .skip(1)
+            .take(2)
+            .collect::<Vec<&str>>()
+            .join("/");
+
+        info!("Remote URL: {}", remote_url.cyan());
+        info!("Organization/Repo: {}", org_repo.cyan());
+
+        let mut push_url = Url::parse(remote_url)?;
+        push_url.set_username("token").unwrap();
+        push_url
+            .set_password(Some(&forgejo_readwrite_token))
+            .unwrap();
+
+        if !dry_run {
+            run_command("git", &["push", push_url.as_str(), "HEAD:main"], None)?;
+            info!("Changes pushed successfully");
+        } else {
+            info!("Dry run: Would push changes to remote repository");
+            info!("Push command that would be executed:");
+            let mut redacted_url = push_url.clone();
+            redacted_url.set_password(Some("REDACTED")).unwrap();
+            info!("git push {} HEAD:main", redacted_url.to_string().cyan());
+        }
+    } else {
+        info!("No formulas were bumped");
+    }
+    Ok(())
+}

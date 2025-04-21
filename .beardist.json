@@ -1,0 +1,8 @@
+{
+    "version": 3,
+    "org": "bearcove",
+    "name": "beardist",
+    "cargo": {
+        "bins": ["beardist"]
+    }
+}
