@@ -28,7 +28,7 @@ jobs:
             ${{ runner.os }}-${{ matrix.artifact }}-beardist-
       - name: Download beardist
         run: |
-          curl -L -o beardist.tar.xz https://github.com/bearcove/beardist/releases/download/v1.0.1/aarch64-apple-darwin.tar.xz
+          curl -L -o beardist.tar.xz https://github.com/bearcove/beardist/releases/download/v1.0.2/aarch64-apple-darwin.tar.xz
           tar -xf beardist.tar.xz
           chmod +x beardist
           sudo mv beardist /usr/local/bin/
