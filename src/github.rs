@@ -3,6 +3,8 @@ use reqwest::blocking::Client;
 use semver::Version;
 use serde_json::Value;
 
+use crate::USER_AGENT;
+
 pub struct GitHubClient {
     client: Client,
     server_url: String,
@@ -49,6 +51,7 @@ impl GitHubClient {
             .header("Authorization", format!("token {}", self.token))
             .header("Accept", "application/vnd.github+json")
             .header("X-GitHub-Api-Version", "2022-11-28")
+            .header("User-Agent", USER_AGENT)
             .send()?;
 
         let status = response.status();
@@ -123,6 +126,7 @@ impl GitHubClient {
             .header("Authorization", format!("token {}", self.token))
             .header("Accept", "application/vnd.github+json")
             .header("X-GitHub-Api-Version", "2022-11-28")
+            .header("User-Agent", USER_AGENT)
             .send()?;
 
         let status = response.status();

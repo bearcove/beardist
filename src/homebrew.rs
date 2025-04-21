@@ -125,7 +125,7 @@ impl HomebrewContext {
 
     fn package_artifact_url(&self, arch: &str) -> String {
         format!(
-            "https://github.com/api/packages/{}/generic/{}/v{}/{}.tar.xz",
+            "https://github.com/{}/{}/releases/download/v{}/{}.tar.xz",
             self.formula.org(),
             self.formula.name(),
             self.new_version,
@@ -392,7 +392,16 @@ pub(crate) fn update_tap() -> eyre::Result<()> {
         let remote_url = remote_output
             .lines()
             .find(|line| line.contains("(push)"))
-            .and_then(|line| line.split_whitespace().nth(1))
+            .and_then(|line| {
+                let url = line.split_whitespace().nth(1)?;
+                // Convert SSH URLs to HTTPS URLs
+                if url.starts_with("git@github.com:") {
+                    let repo_path = url.trim_start_matches("git@github.com:");
+                    Some(format!("https://github.com/{}", repo_path))
+                } else {
+                    Some(url.to_string())
+                }
+            })
             .ok_or_else(|| eyre::eyre!("Failed to get remote URL"))?;
 
         let org_repo = remote_url
@@ -407,7 +416,7 @@ pub(crate) fn update_tap() -> eyre::Result<()> {
         info!("Remote URL: {}", remote_url.cyan());
         info!("Organization/Repo: {}", org_repo.cyan());
 
-        let mut push_url = Url::parse(remote_url)?;
+        let mut push_url = Url::parse(&remote_url)?;
         push_url.set_username("token").unwrap();
         push_url.set_password(Some(&github_token)).unwrap();
 
