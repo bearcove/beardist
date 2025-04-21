@@ -84,7 +84,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: depot-ubuntu-24.04-2
     container:
-      image: ghcr.io/bearcove/beardist:latest
+      image: ghcr.io/bearcove/beardist:1.0.1-amd64
     env:
       GH_READWRITE_TOKEN: ${{ secrets.GH_READWRITE_TOKEN }}
     steps:
