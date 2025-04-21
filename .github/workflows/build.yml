@@ -41,7 +41,7 @@ jobs:
         run: |
           beardist build
   linux-build:
-    runs-on: depot-ubuntu-24.04-2
+    runs-on: depot-ubuntu-24.04-16
     steps:
       - name: Check out repository code
         uses: actions/checkout@v4
