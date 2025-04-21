@@ -84,6 +84,25 @@ RUN set -eux; \
     npm install -g esbuild
 
 ####################################################################################################
+FROM build AS beardist-builder
+
+WORKDIR /build
+
+COPY src/ ./src/
+COPY Cargo.toml .
+
+RUN rustup default stable
+
+RUN export DEBIAN_FRONTEND=noninteractive \
+    && apt-get update \
+    && apt-get install --no-install-recommends -y \
+    libssl-dev \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN cargo build --release
+
+####################################################################################################
 FROM build AS beardist
 
 COPY --from=beardist-builder /build/target/release/beardist /usr/bin/beardist
