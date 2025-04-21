@@ -1,4 +1,4 @@
-BASE := "code.bearcove.cloud/bearcove"
+BASE := "ghcr.io/bearcove"
 
 check:
     cargo clippy --all-targets --all-features -- -D warnings
