@@ -41,63 +41,23 @@ jobs:
         run: |
           beardist build
   linux-build:
-    strategy:
-      matrix:
-        include:
-          - runs-on: depot-ubuntu-24.04-arm-16
-            artifact: aarch64-unknown-linux-gnu
-            platform: linux/arm64
-            tag: 1.0.1-arm64
-          - runs-on: depot-ubuntu-24.04-16
-            artifact: x86_64-unknown-linux-gnu
-            platform: linux/amd64
-            tag: 1.0.1-amd64
-    runs-on: ${{ matrix.runs-on }}
-    container:
-      image: ghcr.io/bearcove/beardist:${{ matrix.tag }}
-    env:
-      BEARDIST_CACHE_DIR: /tmp/beardist-cache
-      BEARDIST_ARTIFACT_NAME: ${{ matrix.artifact }}
-      CLICOLOR: 1
-      CLICOLOR_FORCE: 1
-      IMAGE_PLATFORM: ${{ matrix.platform }}
+    runs-on: depot-ubuntu-24.04-2
     steps:
       - name: Check out repository code
         uses: actions/checkout@v4
-      - name: Restore cache
-        uses: actions/cache@v3
-        with:
-          path: /tmp/beardist-cache
-          key: ${{ runner.os }}-${{ matrix.artifact }}-beardist-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ matrix.artifact }}-beardist-
       - name: Build
         shell: bash
         run: |
-          beardist build
-          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
-              regctl registry login ghcr.io -u token -p "${{ secrets.GH_READWRITE_TOKEN }}"
-              ./repack.sh
-          fi
+          docker buildx bake
   trigger-formula-update:
     needs: [mac-build, linux-build]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: depot-ubuntu-24.04-2
-    container:
-      image: ghcr.io/bearcove/beardist:1.0.1-amd64
     env:
       GH_READWRITE_TOKEN: ${{ secrets.GH_READWRITE_TOKEN }}
     steps:
       - name: Check out repository code
         uses: actions/checkout@v4
-
-      - name: Login to registry
-        run: |
-          regctl registry login ghcr.io -u token -p "${{ secrets.GH_READWRITE_TOKEN }}"
-
-      - name: Create and push multi-platform manifest
-        run: |
-          ./multify.sh
 
       - name: Trigger formula update
         run: |

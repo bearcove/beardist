@@ -72,7 +72,7 @@ ENV PATH="/root/.cargo/bin:${PATH}" \
     CC=clang \
     CXX=clang++
 RUN curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash \
-    && cargo-binstall -y cargo-sweep cargo-nextest just
+    && cargo-binstall -y cargo-sweep cargo-nextest just cargo-chef
 
 RUN set -eux; \
     arch=$([ "$(uname -m)" = "aarch64" ] && echo "arm64" || echo "amd64") && \
@@ -128,7 +128,6 @@ RUN arch=$([ "$(uname -m)" = "aarch64" ] && echo "aarch64" || echo "x86_64") \
     && ln -s "/usr/lib/${arch}-linux-gnu/libsqlite3.so.0" "/usr/lib/${arch}-linux-gnu/libsqlite3.so"
 
 # Define a Docker Buildx Bake configuration
-# To build: docker buildx bake beardist
 FROM build AS beardist-builder
 
 WORKDIR /build
