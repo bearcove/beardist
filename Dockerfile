@@ -144,9 +144,6 @@ RUN export DEBIAN_FRONTEND=noninteractive \
     pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
-COPY recipe.json .
-RUN cargo chef cook --recipe-path recipe.json
-
 RUN cargo build --release
 
 ####################################################################################################
