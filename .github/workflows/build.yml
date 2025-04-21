@@ -32,6 +32,10 @@ jobs:
           tar -xf beardist.tar.xz
           chmod +x beardist
           sudo mv beardist /usr/local/bin/
+      - name: Install cargo-binstall and other tools
+        run: |
+          curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
+          cargo binstall --yes cargo-sweep cargo-nextest
       - name: Build
         shell: bash
         run: |
