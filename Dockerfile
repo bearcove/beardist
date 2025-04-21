@@ -14,16 +14,29 @@ RUN export DEBIAN_FRONTEND=noninteractive \
     curl \
     gzip \
     libcurl4 \
-    dav1d \
     libpng16-16 \
     libprotobuf32 \
-    sqlite3 \
     tar \
-    fonttools \
     xz-utils \
-    && curl -fsSL https://deb.nodesource.com/setup_current.x | bash - \
-    && apt-get install --no-install-recommends -y nodejs \
     && rm -rf /var/lib/apt/lists/*
+
+RUN export DEBIAN_FRONTEND=noninteractive \
+    && apt-get update \
+    && apt-get install --no-install-recommends -y \
+    dav1d \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN export DEBIAN_FRONTEND=noninteractive \
+    && apt-get update \
+    && apt-get install --no-install-recommends -y \
+    sqlite3 \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
+    && . $HOME/.local/bin/env \
+    && uvx fonttools
+
+ENV PATH="/root/.local/bin:${PATH}"
 
 ####################################################################################################
 FROM base AS build
