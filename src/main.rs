@@ -76,6 +76,7 @@ struct DeployArgs {
 }
 
 pub const CONFIG_VERSION: u64 = 3;
+pub const USER_AGENT: &str = "github.com/bearcove/beardist@1.0";
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -250,7 +251,6 @@ impl BuildContext {
         let github_server_url = match env::var("GITHUB_SERVER_URL") {
             Ok(url) => url,
             Err(_) => {
-                is_dry_run = true;
                 warn!(
                     "{} is not set, falling back to default",
                     "GITHUB_SERVER_URL".cyan()
@@ -430,6 +430,7 @@ impl BuildContext {
             .header("Accept", "application/vnd.github+json")
             .header("Authorization", format!("Bearer {}", self.github_rw_token))
             .header("X-GitHub-Api-Version", "2022-11-28")
+            .header("User-Agent", USER_AGENT)
             .send()?;
 
         let release_id = if !release_response.status().is_success() {
@@ -455,6 +456,7 @@ impl BuildContext {
                 .header("Accept", "application/vnd.github+json")
                 .header("Authorization", format!("Bearer {}", self.github_rw_token))
                 .header("X-GitHub-Api-Version", "2022-11-28")
+                .header("User-Agent", USER_AGENT)
                 .json(&release_create_body)
                 .send()?;
 
@@ -516,6 +518,7 @@ impl BuildContext {
                 .header("Accept", "application/vnd.github+json")
                 .header("Authorization", format!("Bearer {}", self.github_rw_token))
                 .header("X-GitHub-Api-Version", "2022-11-28")
+                .header("User-Agent", USER_AGENT)
                 .header("Content-Type", "application/octet-stream")
                 .body(file_content.to_vec())
                 .send()
