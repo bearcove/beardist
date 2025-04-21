@@ -76,6 +76,11 @@ RUN export DEBIAN_FRONTEND=noninteractive \
 
 RUN curl -fsSL https://bun.sh/install | bash
 ENV PATH="/root/.bun/bin:${PATH}"
+RUN curl -fsSL https://deb.nodesource.com/setup_current.x | bash - \
+    && export DEBIAN_FRONTEND=noninteractive \
+    && apt-get install --no-install-recommends -y \
+    nodejs \
+    && rm -rf /var/lib/apt/lists/*
 RUN npm install -g pnpm
 
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none
@@ -92,9 +97,6 @@ RUN set -eux; \
     curl -L https://github.com/regclient/regclient/releases/latest/download/regctl-linux-${arch} > /usr/bin/regctl \
     && chmod 755 /usr/bin/regctl \
     && regctl version
-
-RUN set -eux; \
-    npm install -g esbuild
 
 ####################################################################################################
 FROM build AS beardist-builder
