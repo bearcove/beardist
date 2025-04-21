@@ -13,12 +13,25 @@ jobs:
       # TODO: save/restore
       BEARDIST_CACHE_DIR: /tmp/beardist-cache
       BEARDIST_ARTIFACT_NAME: aarch64-apple-darwin
-      FORGEJO_READWRITE_TOKEN: ${{ secrets.FORGEJO_READWRITE_TOKEN }}
+      GH_READWRITE_TOKEN: ${{ secrets.GH_READWRITE_TOKEN }}
       CLICOLOR: 1
       CLICOLOR_FORCE: 1
     steps:
       - name: Check out repository code
         uses: actions/checkout@v4
+      - name: Restore cache
+        uses: actions/cache@v3
+        with:
+          path: /tmp/beardist-cache
+          key: ${{ runner.os }}-${{ matrix.artifact }}-beardist-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.artifact }}-beardist-
+      - name: Download beardist
+        run: |
+          curl -L -o beardist.tar.xz https://github.com/bearcove/beardist/releases/download/v1.0.1/aarch64-apple-darwin.tar.xz
+          tar -xf beardist.tar.xz
+          chmod +x beardist
+          sudo mv beardist /usr/local/bin/
       - name: Build
         shell: bash
         run: |
@@ -59,7 +72,7 @@ jobs:
         run: |
           beardist build
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
-              regctl registry login ghcr.io -u token -p "${{ secrets.FORGEJO_READWRITE_TOKEN }}"
+              regctl registry login ghcr.io -u token -p "${{ secrets.GH_READWRITE_TOKEN }}"
               ./repack.sh
           fi
   trigger-formula-update:
@@ -69,14 +82,14 @@ jobs:
     container:
       image: ghcr.io/bearcove/beardist:latest
     env:
-      FORGEJO_READWRITE_TOKEN: ${{ secrets.FORGEJO_READWRITE_TOKEN }}
+      GH_READWRITE_TOKEN: ${{ secrets.GH_READWRITE_TOKEN }}
     steps:
       - name: Check out repository code
         uses: actions/checkout@v4
 
       - name: Login to registry
         run: |
-          regctl registry login ghcr.io -u token -p "${{ secrets.FORGEJO_READWRITE_TOKEN }}"
+          regctl registry login ghcr.io -u token -p "${{ secrets.GH_READWRITE_TOKEN }}"
 
       - name: Create and push multi-platform manifest
         run: |
@@ -85,7 +98,7 @@ jobs:
       - name: Trigger formula update
         run: |
           curl -f -X POST \
-            -H "Authorization: token $FORGEJO_READWRITE_TOKEN" \
+            -H "Authorization: token $GH_READWRITE_TOKEN" \
             -H "Accept: application/json" \
             -H "Content-Type: application/json" \
             -d '{"ref": "main", "inputs": {"repository": "'$GITHUB_REPOSITORY'"}}' \

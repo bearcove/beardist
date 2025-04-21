@@ -217,11 +217,11 @@ impl BuildContext {
 
         let mut is_dry_run = false;
 
-        let github_rw_token = match env::var("GITHUB_READWRITE_TOKEN") {
+        let github_rw_token = match env::var("GH_READWRITE_TOKEN") {
             Ok(token) => {
                 info!(
                     "{} is set: {}",
-                    "GITHUB_READWRITE_TOKEN".cyan(),
+                    "GH_READWRITE_TOKEN".cyan(),
                     format_secret(&token)
                 );
                 token
