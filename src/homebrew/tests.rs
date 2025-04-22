@@ -41,10 +41,12 @@ fn test_generate_and_audit_formula() -> eyre::Result<()> {
         .expect("Failed to create HomebrewContext");
 
     let mac_binary = context.get_binary("https://example.com/mac")?;
-    let linux_binary = context.get_binary("https://example.com/linux")?;
+    let linux_x86_64_binary = context.get_binary("https://example.com/linux-x86_64")?;
+    let linux_aarch64_binary = context.get_binary("https://example.com/linux-aarch64")?;
 
     let binaries = Binaries {
-        linux: linux_binary,
+        linux_x86_64: linux_x86_64_binary,
+        linux_aarch64: linux_aarch64_binary,
         mac: mac_binary,
     };
     let formula_content = context.generate_homebrew_formula(binaries)?;

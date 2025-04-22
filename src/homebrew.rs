@@ -34,7 +34,8 @@ struct Formula {
 
 struct Binaries {
     mac: Binary,
-    linux: Binary,
+    linux_x86_64: Binary,
+    linux_aarch64: Binary,
 }
 
 impl Formula {
@@ -82,6 +83,7 @@ struct Binary {
     sha256: String,
 }
 
+#[derive(Clone)]
 struct HomebrewContext {
     client: Arc<Client>,
     dry_run: bool,
@@ -135,9 +137,30 @@ impl HomebrewContext {
 
     fn update_formula(&self) -> eyre::Result<()> {
         info!("Updating Homebrew {}...", "formula".bright_yellow());
+
+        // Set up URLs for all architectures
+        let mac_url = self.package_artifact_url("aarch64-apple-darwin");
+        let linux_x86_64_url = self.package_artifact_url("x86_64-unknown-linux-gnu");
+        let linux_aarch64_url = self.package_artifact_url("aarch64-unknown-linux-gnu");
+
+        // Use threads to fetch binaries in parallel
+        let self_clone1 = self.clone();
+        let mac = std::thread::spawn(move || self_clone1.get_binary(&mac_url));
+
+        let self_clone2 = self.clone();
+        let linux_x86_64 = std::thread::spawn(move || self_clone2.get_binary(&linux_x86_64_url));
+
+        let self_clone3 = self.clone();
+        let linux_aarch64 = std::thread::spawn(move || self_clone3.get_binary(&linux_aarch64_url));
+
+        let mac = mac.join().unwrap();
+        let linux_x86_64 = linux_x86_64.join().unwrap();
+        let linux_aarch64 = linux_aarch64.join().unwrap();
+
         let binaries = Binaries {
-            mac: self.get_binary(&self.package_artifact_url("aarch64-apple-darwin"))?,
-            linux: self.get_binary(&self.package_artifact_url("x86_64-unknown-linux-gnu"))?,
+            mac: mac?,
+            linux_x86_64: linux_x86_64?,
+            linux_aarch64: linux_aarch64?,
         };
 
         let formula = self.generate_homebrew_formula(binaries)?;
@@ -217,8 +240,20 @@ impl HomebrewContext {
             writeln!(w, "elsif OS.linux?")?;
             {
                 let mut w = w.indented();
-                writeln!(w, "url \"{}\"", binaries.linux.url)?;
-                writeln!(w, "sha256 \"{}\"", binaries.linux.sha256)?;
+                writeln!(w, "on_intel do")?;
+                {
+                    let mut w = w.indented();
+                    writeln!(w, "url \"{}\"", binaries.linux_x86_64.url)?;
+                    writeln!(w, "sha256 \"{}\"", binaries.linux_x86_64.sha256)?;
+                }
+                writeln!(w, "end")?;
+                writeln!(w, "on_arm do")?;
+                {
+                    let mut w = w.indented();
+                    writeln!(w, "url \"{}\"", binaries.linux_aarch64.url)?;
+                    writeln!(w, "sha256 \"{}\"", binaries.linux_aarch64.sha256)?;
+                }
+                writeln!(w, "end")?;
             }
             writeln!(w, "end")?;
             writeln!(w)?;
