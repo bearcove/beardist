@@ -322,16 +322,6 @@ impl<'a> CargoBuildContext<'a> {
 
     fn get_env(&self) -> IndexMap<String, String> {
         let mut env = self.build_env.get_env();
-        let mut additional_rustflags = Vec::new();
-
-        if !additional_rustflags.is_empty() {
-            env.entry("RUSTFLAGS".to_string()).and_modify(|e| {
-                for flag in &additional_rustflags {
-                    e.push(' ');
-                    e.push_str(flag);
-                }
-            });
-        }
         env.insert(
             "CARGO_TARGET_DIR".to_string(),
             self.cargo_target_dir().to_string(),
