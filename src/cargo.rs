@@ -11,11 +11,6 @@ use crate::{BuildContext, PackagedFile, PackagedFileKind, TargetSpec, command};
 pub(crate) struct CargoConfig {
     /// Name of binaries we should pack
     pub(crate) bins: Vec<String>,
-
-    /// Is this a binary powered by dylo? If so, we'll do dynamic linking, set things like
-    /// "-Clink-arg=-undefined" and "-Clink-arg=dynamic_lookup" on macOS, etc.
-    #[serde(default)]
-    pub(crate) dylo: bool,
 }
 
 /// builds values for RUSTUP_HOME, CARGO_HOME, etc.
@@ -328,22 +323,6 @@ impl<'a> CargoBuildContext<'a> {
     fn get_env(&self) -> IndexMap<String, String> {
         let mut env = self.build_env.get_env();
         let mut additional_rustflags = Vec::new();
-
-        if self.config.dylo {
-            additional_rustflags.push("-C prefer-dynamic");
-            if self.target_spec.os == "linux" {
-                additional_rustflags
-                    .push("-C link-arg=-Wl,-rpath,$ORIGIN/../libexec,-rpath,$ORIGIN/");
-            } else if self.target_spec.os == "macos" {
-                additional_rustflags.push(
-                    "-C link-arg=-Wl,-rpath,@executable_path/../libexec,-rpath,@executable_path/",
-                );
-                additional_rustflags.push("-C link-arg=-undefined");
-                additional_rustflags.push("-C link-arg=dynamic_lookup");
-            } else {
-                warn!("Unrecognized OS: {}. RPATH not set.", self.target_spec.os);
-            }
-        }
 
         if !additional_rustflags.is_empty() {
             env.entry("RUSTFLAGS".to_string()).and_modify(|e| {
