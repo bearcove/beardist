@@ -101,13 +101,6 @@ impl<'a> CargoBuildContext<'a> {
             cargo_sweep_version.blue()
         );
 
-        info!("🔍 Rustup environment:");
-        let rustup_show_output =
-            command::get_trimmed_cmd_stdout("rustup", &["show"], Some(build_env.get_env()))?;
-        for line in rustup_show_output.lines() {
-            info!("  {line}");
-        }
-
         let json_output = command::get_trimmed_cmd_stdout(
             "rustc",
             &["-Z", "unstable-options", "--print", "target-spec-json"],
