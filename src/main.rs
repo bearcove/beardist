@@ -409,162 +409,29 @@ impl BuildContext {
             return Ok(());
         }
 
-        // Create a release if it doesn't exist
-        let client = reqwest::blocking::Client::new();
-        let github_api_url = format!(
-            "{}/repos/{}/{}/releases/tags/{}",
-            self.github_server_url
-                .replace("github.com", "api.github.com"),
-            org,
-            name,
-            tag
+        // Create a release if it doesn't exist using the github client
+        let github_client = crate::github::GitHubClient::new(
+            self.github_server_url.clone(),
+            self.github_rw_token.clone(),
         );
 
-        info!(
-            "🔍 Checking if release exists at {}...",
-            github_api_url.cyan()
-        );
+        let release_id = github_client
+            .create_release(org, name, tag)
+            .map_err(|e| eyre::eyre!("Failed to create or get release: {}", e))?;
 
-        let release_response = client
-            .get(&github_api_url)
-            .header("Accept", "application/vnd.github+json")
-            .header("Authorization", format!("Bearer {}", self.github_rw_token))
-            .header("X-GitHub-Api-Version", "2022-11-28")
-            .header("User-Agent", USER_AGENT)
-            .send()?;
-
-        let release_id = if !release_response.status().is_success() {
-            info!("📝 Release doesn't exist, creating one...");
-
-            let release_create_url = format!(
-                "{}/repos/{}/{}/releases",
-                self.github_server_url
-                    .replace("github.com", "api.github.com"),
-                org,
-                name
-            );
-
-            let release_create_body = serde_json::json!({
-                "tag_name": tag,
-                "name": tag,
-                "draft": false,
-                "prerelease": false
-            });
-
-            let create_response = client
-                .post(&release_create_url)
-                .header("Accept", "application/vnd.github+json")
-                .header("Authorization", format!("Bearer {}", self.github_rw_token))
-                .header("X-GitHub-Api-Version", "2022-11-28")
-                .header("User-Agent", USER_AGENT)
-                .json(&release_create_body)
-                .send()?;
-
-            if !create_response.status().is_success() {
-                return Err(eyre::eyre!(
-                    "Failed to create release: {}",
-                    create_response.text()?
-                ));
-            }
-
-            let release_data: serde_json::Value = create_response.json()?;
-            release_data["id"]
-                .as_u64()
-                .ok_or_else(|| eyre::eyre!("Invalid release ID"))?
-        } else {
-            let release_data: serde_json::Value = release_response.json()?;
-            release_data["id"]
-                .as_u64()
-                .ok_or_else(|| eyre::eyre!("Invalid release ID"))?
-        };
-
-        // Upload the asset to the release
-        let upload_url = format!(
-            "{}/repos/{}/{}/releases/{}/assets?name={}",
-            self.github_server_url
-                .replace("github.com", "uploads.github.com"),
-            org,
-            name,
-            release_id,
-            package_file_name
-        );
-
-        info!(
-            "📤 Uploading package to {} ({})...",
-            "GitHub".yellow(),
-            upload_url.cyan()
-        );
+        // Upload the asset to the release using the GitHub client abstraction
         let upload_start = std::time::Instant::now();
 
-        // Retry logic for upload attempts
-        const MAX_RETRIES: usize = 3;
-        const BASE_RETRY_DELAY_MS: u64 = 2000; // 2 seconds
+        github_client
+            .upload_artifact(org, name, release_id, package_file_name, file_content)
+            .map_err(|e| eyre::eyre!("Failed to upload release artifact: {}", e))?;
 
-        let mut attempt = 0;
-        let mut last_error = None;
-
-        while attempt < MAX_RETRIES {
-            attempt += 1;
-
-            if attempt > 1 {
-                info!("🔄 Retry attempt {} of {}...", attempt, MAX_RETRIES);
-                let jitter = rand::random::<u64>() % 1000; // Random jitter between 0-999ms
-                let delay = BASE_RETRY_DELAY_MS + jitter;
-                std::thread::sleep(std::time::Duration::from_millis(delay));
-            }
-
-            match client
-                .post(&upload_url)
-                .header("Accept", "application/vnd.github+json")
-                .header("Authorization", format!("Bearer {}", self.github_rw_token))
-                .header("X-GitHub-Api-Version", "2022-11-28")
-                .header("User-Agent", USER_AGENT)
-                .header("Content-Type", "application/octet-stream")
-                .body(file_content.to_vec())
-                .send()
-            {
-                Ok(response) => {
-                    info!("🔢 Response status code: {}", response.status().blue());
-
-                    let status = response.status();
-                    let response_text = response.text()?;
-                    info!("{}", "----------------------------------------".yellow());
-                    info!("📄 {}", "Response Data:".yellow());
-                    info!("{}", "----------------------------------------".yellow());
-                    info!("{}", response_text);
-                    info!("{}", "----------------------------------------".yellow());
-
-                    // If successful or not a 5xx error, break out of retry loop
-                    if status.is_success() || !status.is_server_error() {
-                        if !status.is_success() {
-                            return Err(eyre::eyre!(
-                                "❌ Upload failed with status code: {}",
-                                status
-                            ));
-                        }
-
-                        let upload_time = upload_start.elapsed().as_millis() as u64;
-                        info!(
-                            "✅ Package upload completed ({})",
-                            format!("{}ms", upload_time).green()
-                        );
-                        return Ok(());
-                    }
-
-                    // If we get here, it's a 5xx error and we'll retry
-                    last_error = Some(eyre::eyre!("Server error with status code: {}", status));
-                }
-                Err(e) => {
-                    last_error = Some(eyre::eyre!("Request error: {}", e));
-                }
-            }
-
-            warn!("📶 Upload attempt {} failed, retrying...", attempt);
-        }
-
-        // If we get here, all retries failed
-        Err(last_error
-            .unwrap_or_else(|| eyre::eyre!("Upload failed after {} attempts", MAX_RETRIES)))
+        let upload_time = upload_start.elapsed().as_millis() as u64;
+        info!(
+            "✅ Package upload completed ({})",
+            format!("{}ms", upload_time).green()
+        );
+        Ok(())
     }
 }
 
