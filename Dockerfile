@@ -90,7 +90,7 @@ ENV PATH="/root/.cargo/bin:${PATH}" \
     CC=clang \
     CXX=clang++
 RUN curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash \
-    && cargo-binstall -y cargo-sweep cargo-nextest just cargo-chef
+    && cargo-binstall -y cargo-sweep cargo-nextest just cargo-chef cargo-xwin
 
 RUN set -eux; \
     arch=$([ "$(uname -m)" = "aarch64" ] && echo "arm64" || echo "amd64") && \
