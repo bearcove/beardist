@@ -185,7 +185,7 @@ pub(crate) fn k8s(args: crate::DeployArgs) -> eyre::Result<()> {
         for occurrence in &manifest.occurrences {
             let before = &contents[..occurrence.start];
             let after = &contents[occurrence.end..];
-            let new_image_line = format!("image: ghcr.io/{}:{}", args.image, new_version);
+            let new_image_line = format!("image: ghcr.io/{}:v{}", args.image, new_version);
             contents = format!("{}{}{}", before, new_image_line, after);
         }
         fs_err::write(&manifest.path, contents)?;
