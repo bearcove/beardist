@@ -27,7 +27,7 @@ struct Workspace {
 }
 
 fn collect_workspace(manifest_dir: &Path, image: &str) -> Result<Workspace, std::io::Error> {
-    let search_regex = Regex::new(&format!(r"image:\s*ghcr\.io/{}:(\S+)", image)).unwrap();
+    let search_regex = Regex::new(&format!(r"image:\s*ghcr\.io/{}:v(\S+)", image)).unwrap();
     let manifests = Arc::new(std::sync::Mutex::new(Vec::new()));
 
     WalkBuilder::new(manifest_dir)
